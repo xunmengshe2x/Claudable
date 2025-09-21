@@ -175,7 +175,7 @@ export default function HomePage() {
       setCLIStatus(checkingStatus);
       
       try {
-        const response = await fetch(`${API_BASE}/api/settings/cli-status`);
+        const response = await fetch(`/api/proxy/settings/cli-status`);
         if (response.ok) {
           const data = await response.json();
           setCLIStatus(data);
@@ -294,7 +294,7 @@ export default function HomePage() {
 
   async function load() {
     try {
-      const r = await fetchAPI(`${API_BASE}/api/projects`);
+      const r = await fetchAPI(`/api/proxy/projects`);
       if (r.ok) {
         const projectsData = await r.json();
         // Sort by most recent activity (last_message_at or created_at)
@@ -314,7 +314,7 @@ export default function HomePage() {
   
   async function start(projectId: string) {
     try {
-      await fetchAPI(`${API_BASE}/api/projects/${projectId}/preview/start`, { method: 'POST' });
+      await fetchAPI(`/api/proxy/projects/${projectId}/preview/start`, { method: 'POST' });
       await load();
     } catch (error) {
       console.error('Failed to start project:', error);
@@ -323,7 +323,7 @@ export default function HomePage() {
   
   async function stop(projectId: string) {
     try {
-      await fetchAPI(`${API_BASE}/api/projects/${projectId}/preview/stop`, { method: 'POST' });
+      await fetchAPI(`/api/proxy/projects/${projectId}/preview/stop`, { method: 'POST' });
       await load();
     } catch (error) {
       console.error('Failed to stop project:', error);
@@ -348,7 +348,7 @@ export default function HomePage() {
     
     setIsDeleting(true);
     try {
-      const response = await fetchAPI(`${API_BASE}/api/projects/${deleteModal.project.id}`, { method: 'DELETE' });
+      const response = await fetchAPI(`/api/proxy/projects/${deleteModal.project.id}`, { method: 'DELETE' });
       
       if (response.ok) {
         showToast('Project deleted successfully', 'success');
@@ -368,7 +368,7 @@ export default function HomePage() {
 
   async function updateProject(projectId: string, newName: string) {
     try {
-      const response = await fetchAPI(`${API_BASE}/api/projects/${projectId}`, {
+      const response = await fetchAPI(`/api/proxy/projects/${projectId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName })
@@ -496,7 +496,7 @@ export default function HomePage() {
     
     try {
       // Create a new project first
-      const response = await fetchAPI(`${API_BASE}/api/projects`, {
+      const response = await fetchAPI(`/api/proxy/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -533,7 +533,7 @@ export default function HomePage() {
             const formData = new FormData();
             formData.append('file', image.file);
 
-            const uploadResponse = await fetchAPI(`${API_BASE}/api/assets/${project.id}/upload`, {
+            const uploadResponse = await fetchAPI(`/api/proxy/assets/${project.id}/upload`, {
               method: 'POST',
               body: formData
             });
@@ -563,7 +563,7 @@ export default function HomePage() {
       // Execute initial prompt directly with images
       if (finalPrompt.trim()) {
         try {
-          const actResponse = await fetchAPI(`${API_BASE}/api/chat/${project.id}/act`, {
+          const actResponse = await fetchAPI(`/api/proxy/chat/${project.id}/act`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

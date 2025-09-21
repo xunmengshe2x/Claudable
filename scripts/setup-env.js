@@ -78,19 +78,56 @@ async function setupEnvironment() {
       console.log(`  Web port: ${webPort}`);
     }
     
-    // Create root .env file
-    const envContent = `# Auto-generated environment configuration
-API_PORT=${apiPort}
-WEB_PORT=${webPort}
-DATABASE_URL=sqlite:///${path.join(rootDir, 'data', 'cc.db')}
-`;
-    
+    // Create or update root .env file, preserving existing values
+    let envContent = '';
+    const existingEnv = {};
+
+    // Read existing .env file if it exists
+    if (fs.existsSync(envFile)) {
+      const existing = fs.readFileSync(envFile, 'utf8');
+      const lines = existing.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+      lines.forEach(line => {
+        const [key, ...valueParts] = line.split('=');
+        if (key && valueParts.length > 0) {
+          existingEnv[key.trim()] = valueParts.join('=').trim();
+        }
+      });
+    }
+
+    // Set required values
+    const requiredEnv = {
+      API_PORT: apiPort,
+      WEB_PORT: webPort,
+      DATABASE_URL: `sqlite:///${path.join(rootDir, 'data', 'cc.db')}`
+    };
+
+    // Merge existing with required (required takes precedence for core values)
+    const finalEnv = { ...existingEnv, ...requiredEnv };
+
+    // Generate content
+    envContent = '# Auto-generated environment configuration\n';
+    Object.entries(finalEnv).forEach(([key, value]) => {
+      envContent += `${key}=${value}\n`;
+    });
+
     fs.writeFileSync(envFile, envContent);
-    console.log(`  Created .env`);
+    console.log(`  Updated .env (preserving existing variables)`);
     
     // Create or update apps/web/.env.local to match chosen API port
-    const desiredApiBase = `http://localhost:${apiPort}`;
-    const desiredWsBase = `ws://localhost:${apiPort}`;
+    // Check if we're in GitHub Codespaces
+    const isCodespaces = process.env.CODESPACES === 'true';
+    const codespaceName = process.env.CODESPACE_NAME;
+    const codespacesDomain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev';
+
+    let desiredApiBase, desiredWsBase;
+    if (isCodespaces && codespaceName) {
+      desiredApiBase = `https://${codespaceName}-${apiPort}.${codespacesDomain}`;
+      desiredWsBase = `wss://${codespaceName}-${apiPort}.${codespacesDomain}`;
+      console.log(`  Using Codespaces URLs: ${desiredApiBase}`);
+    } else {
+      desiredApiBase = `http://localhost:${apiPort}`;
+      desiredWsBase = `ws://localhost:${apiPort}`;
+    }
 
     const writeEnvLocal = (content) => {
       fs.writeFileSync(webEnvFile, content);

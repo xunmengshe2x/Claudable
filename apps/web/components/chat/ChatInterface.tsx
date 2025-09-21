@@ -4,7 +4,7 @@
  */
 import React, { useState, useCallback } from 'react';
 import { ChatMode, ImageAttachment } from '@/types/chat';
-import { useChat } from '@/hooks/useChat';
+import { usePollingChat } from '@/hooks/usePollingChat';
 import { useCLI } from '@/hooks/useCLI';
 import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
@@ -25,11 +25,10 @@ export function ChatInterface({ projectId, conversationId }: ChatInterfaceProps)
     isLoading,
     isConnected,
     currentSession,
-    sendMessage,
     executeAct,
     executeChat,
     clearMessages
-  } = useChat({ projectId, conversationId });
+  } = usePollingChat({ projectId, conversationId });
 
   const {
     cliOptions,

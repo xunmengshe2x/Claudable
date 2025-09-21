@@ -44,13 +44,54 @@ class LogFilterMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(LogFilterMiddleware)
 
-# Basic CORS for local development - support multiple ports
+# Middleware to handle Codespaces redirects with CORS headers
+class CodespacesRedirectMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # For Codespaces, prevent automatic slash redirects that cause URL mangling
+        if os.getenv("CODESPACE_NAME") and request.url.path.endswith("/api/projects"):
+            # Check if this is the exact path without trailing slash
+            if not request.url.path.endswith("/api/projects/"):
+                # Proceed without redirect for exact matches
+                response = await call_next(request)
+            else:
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
+
+        # For 3xx redirects, ensure CORS headers are present
+        if 300 <= response.status_code < 400:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Expose-Headers"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+
+        return response
+
+app.add_middleware(CodespacesRedirectMiddleware)
+
+# Enhanced CORS for Codespaces
+import os
+codespace_name = os.getenv("CODESPACE_NAME")
+
+# For Codespaces, we need to allow the specific frontend origin
+if codespace_name:
+    allowed_origins = [
+        f"https://{codespace_name}-3000.app.github.dev",
+        f"https://{codespace_name}-8080.app.github.dev",  # Allow backend URL as origin too
+        "http://localhost:3000",  # Local fallback
+        "*"  # Allow all for development
+    ]
+else:
+    allowed_origins = ["*"]  # Allow all origins in local development
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in development
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Routers

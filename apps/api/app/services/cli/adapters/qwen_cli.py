@@ -225,6 +225,17 @@ class QwenCLI(BaseCLI):
             ui.warning(f"Failed to create QWEN.md: {e}", "Qwen")
 
     async def _ensure_client(self) -> _ACPClient:
+        # Force reset shared client to pick up new OpenRouter configuration
+        # This ensures we don't use a cached client with old auth state
+        if QwenCLI._SHARED_CLIENT is not None:
+            try:
+                await QwenCLI._SHARED_CLIENT.stop()
+            except:
+                pass
+            QwenCLI._SHARED_CLIENT = None
+            QwenCLI._SHARED_INITIALIZED = False
+            ui.info("Reset Qwen CLI client to pick up new OpenRouter configuration", "Qwen")
+
         # Use shared client across adapter instances
         if QwenCLI._SHARED_CLIENT is None:
             # Resolve command: env(QWEN_CMD) -> qwen -> qwen-code
@@ -242,10 +253,56 @@ class QwenCLI(BaseCLI):
                 raise RuntimeError(
                     "Qwen CLI not found. Set QWEN_CMD or install 'qwen' CLI in PATH."
                 )
+            # Always use ACP mode for consistent protocol
             cmd = [resolved, "--experimental-acp"]
+
+            # Check if OpenRouter is configured and add OpenAI flags if so
+            use_openrouter = os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL")
+            if use_openrouter:
+                # Add OpenAI flags to force OpenAI-compatible mode
+                cmd.extend([
+                    "--openai-api-key", os.getenv("OPENAI_API_KEY"),
+                    "--openai-base-url", os.getenv("OPENAI_BASE_URL")
+                ])
+                if os.getenv("OPENAI_MODEL"):
+                    cmd.extend(["--model", os.getenv("OPENAI_MODEL")])
+
+                ui.info("Using Qwen CLI ACP mode with OpenRouter CLI flags", "Qwen")
+                ui.info(f"OpenRouter model: {os.getenv('OPENAI_MODEL', 'qwen/qwen3-coder-plus')}", "Qwen")
+            else:
+                ui.info("Using Qwen CLI in ACP mode (native authentication)", "Qwen")
             # Prefer device-code / no-browser flow to avoid launching windows
             env = os.environ.copy()
             env.setdefault("NO_BROWSER", "1")
+
+            # Configure OpenRouter integration for Qwen CLI
+            # These environment variables tell Qwen CLI to use OpenRouter instead of native auth
+            if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL"):
+                env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+                env["OPENAI_BASE_URL"] = os.getenv("OPENAI_BASE_URL")
+                if os.getenv("OPENAI_MODEL"):
+                    env["OPENAI_MODEL"] = os.getenv("OPENAI_MODEL")
+
+                # Additional environment variables to force OpenAI-compatible mode
+                env["QWEN_AUTH_METHOD"] = "openai-compatible"
+                env["QWEN_API_TYPE"] = "openai"
+                env["QWEN_DISABLE_OAUTH"] = "1"
+                env["QWEN_FORCE_OPENAI"] = "1"
+                env["QWEN_USE_OPENAI"] = "true"
+                env["QWEN_OPENAI_ENABLED"] = "true"
+                env["QWEN_SKIP_AUTH"] = "1"
+                env["ANTHROPIC_API_KEY"] = ""  # Disable Claude fallback
+                env["GEMINI_API_KEY"] = ""     # Disable Gemini fallback
+                env["GOOGLE_API_KEY"] = ""     # Also disable Google fallback
+
+                # Set model explicitly to avoid auto-detection
+                if not env.get("OPENAI_MODEL"):
+                    env["OPENAI_MODEL"] = "qwen/qwen3-coder-plus"
+
+                ui.info(f"Configuring Qwen CLI with OpenRouter: {env.get('OPENAI_BASE_URL')}", "Qwen")
+                ui.info("Forcing OpenAI-compatible mode to bypass native authentication", "Qwen")
+                ui.info(f"Environment variables set: OPENAI_API_KEY={env.get('OPENAI_API_KEY')[:10]}..., OPENAI_MODEL={env.get('OPENAI_MODEL')}", "Qwen")
+
             QwenCLI._SHARED_CLIENT = _ACPClient(cmd, env=env)
 
             # Register client-side request handlers
@@ -402,35 +459,55 @@ class QwenCLI(BaseCLI):
                     await self.set_session_id(project_id, stored_session_id)
                     ui.info(f"Qwen session created: {stored_session_id}", "Qwen")
             except Exception as e:
-                # Authenticate only if needed, then retry session/new
-                auth_method = os.getenv("QWEN_AUTH_METHOD", "qwen-oauth")
-                ui.warning(
-                    f"Qwen session/new failed; authenticating via {auth_method}: {e}",
-                    "Qwen",
-                )
-                try:
-                    await client.request("authenticate", {"methodId": auth_method})
-                    result = await client.request(
-                        "session/new", {"cwd": project_repo_path, "mcpServers": []}
-                    )
-                    stored_session_id = result.get("sessionId")
-                    if stored_session_id:
-                        await self.set_session_id(project_id, stored_session_id)
-                        ui.info(
-                            f"Qwen session created after auth: {stored_session_id}", "Qwen"
+                # Determine authentication approach
+                use_openrouter = os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL")
+
+                if use_openrouter:
+                    # When using OpenRouter with CLI flags, authentication should be automatic
+                    # If we get here, it might be a session issue, try recreating without explicit auth
+                    ui.warning(f"Qwen session/new failed with OpenRouter CLI flags, retrying: {e}", "Qwen")
+                    try:
+                        # Try session/new again without explicit authentication
+                        result = await client.request(
+                            "session/new", {"cwd": project_repo_path, "mcpServers": []}
                         )
-                except Exception as e2:
-                    err = f"Qwen authentication/session failed: {e2}"
-                    yield Message(
-                        id=str(uuid.uuid4()),
-                        project_id=project_path,
-                        role="assistant",
-                        message_type="error",
-                        content=err,
-                        metadata_json={"cli_type": self.cli_type.value},
-                        session_id=session_id,
-                        created_at=datetime.utcnow(),
-                    )
+                        stored_session_id = result.get("sessionId")
+                        if stored_session_id:
+                            await self.set_session_id(project_id, stored_session_id)
+                            ui.info(f"Qwen session created with OpenRouter: {stored_session_id}", "Qwen")
+                        else:
+                            raise RuntimeError("Failed to create session even with OpenRouter CLI flags")
+                    except Exception as e2:
+                        ui.error(f"OpenRouter session creation failed: {e2}", "Qwen")
+                        raise
+                else:
+                    # Use traditional OAuth authentication for native Qwen
+                    auth_method = "qwen-oauth"
+                    ui.warning(f"Qwen session/new failed; authenticating via {auth_method}: {e}", "Qwen")
+                    try:
+                        await client.request("authenticate", {"methodId": auth_method})
+                        result = await client.request(
+                            "session/new", {"cwd": project_repo_path, "mcpServers": []}
+                        )
+                        stored_session_id = result.get("sessionId")
+                        if stored_session_id:
+                            await self.set_session_id(project_id, stored_session_id)
+                            ui.info(
+                                f"Qwen session created after auth: {stored_session_id}", "Qwen"
+                            )
+                    except Exception as e2:
+                        err = f"Qwen authentication/session failed: {e2}"
+                        yield Message(
+                            id=str(uuid.uuid4()),
+                            project_id=project_path,
+                            role="assistant",
+                            message_type="error",
+                            content=err,
+                            metadata_json={"cli_type": self.cli_type.value},
+                            session_id=session_id,
+                            created_at=datetime.utcnow(),
+                        )
+                        return
                     return
 
         # Subscribe to session/update notifications and stream as Message
