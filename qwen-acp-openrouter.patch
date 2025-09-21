@@ -1,0 +1,55 @@
+--- /home/codespace/nvm/current/lib/node_modules/@qwen-code/qwen-code/dist/src/zed-integration/zedIntegration.js.backup	2025-09-21 10:50:31.580700936 +0000
++++ /home/codespace/nvm/current/lib/node_modules/@qwen-code/qwen-code/dist/src/zed-integration/zedIntegration.js	2025-09-21 10:51:01.448699184 +0000
+@@ -40,23 +40,35 @@
+     }
+     async initialize(args) {
+         this.clientCapabilities = args.clientCapabilities;
+-        const authMethods = [
+-            {
+-                id: AuthType.LOGIN_WITH_GOOGLE,
+-                name: 'Log in with Google',
+-                description: null,
+-            },
+-            {
+-                id: AuthType.USE_GEMINI,
+-                name: 'Use Gemini API key',
+-                description: 'Requires setting the `GEMINI_API_KEY` environment variable',
+-            },
+-            {
+-                id: AuthType.USE_VERTEX_AI,
+-                name: 'Vertex AI',
+-                description: null,
+-            },
+-        ];
++        const authMethods = [];
++
++        // Check for OpenRouter configuration first - if present, add OpenAI-compatible auth
++        if (process.env.OPENAI_API_KEY && process.env.OPENAI_BASE_URL) {
++            authMethods.push({
++                id: AuthType.USE_OPENAI,
++                name: 'OpenRouter',
++                description: 'Uses OpenRouter API with configured credentials',
++            });
++        } else {
++            // Fallback to original auth methods when OpenRouter is not configured
++            authMethods.push(
++                {
++                    id: AuthType.LOGIN_WITH_GOOGLE,
++                    name: 'Log in with Google',
++                    description: null,
++                },
++                {
++                    id: AuthType.USE_GEMINI,
++                    name: 'Use Gemini API key',
++                    description: 'Requires setting the `GEMINI_API_KEY` environment variable',
++                },
++                {
++                    id: AuthType.USE_VERTEX_AI,
++                    name: 'Vertex AI',
++                    description: null,
++                }
++            );
++        }
+         return {
+             protocolVersion: acp.PROTOCOL_VERSION,
+             authMethods,
